@@ -78,6 +78,16 @@ class StagePageSuite extends SparkFunSuite with LocalSparkContext {
         shuffleLocalBytesRead = 1L,
         shuffleReadBytes = 1L,
         shuffleReadRecords = 1L,
+        shuffleCorruptMergedBlockChunks = 1L,
+        shuffleMergedFetchFallbackCount = 1L,
+        shuffleMergedRemoteBlocksFetched = 1L,
+        shuffleMergedLocalBlocksFetched = 1L,
+        shuffleMergedRemoteChunksFetched = 1L,
+        shuffleMergedLocalChunksFetched = 1L,
+        shuffleMergedRemoteBytesRead = 1L,
+        shuffleMergedLocalBytesRead = 1L,
+        shuffleRemoteReqsDuration = 1L,
+        shuffleMergedRemoteReqsDuration = 1L,
         shuffleWriteBytes = 1L,
         shuffleWriteTime = 1L,
         shuffleWriteRecords = 1L,
@@ -96,7 +106,9 @@ class StagePageSuite extends SparkFunSuite with LocalSparkContext {
         ResourceProfile.DEFAULT_RESOURCE_PROFILE_ID,
         peakExecutorMetrics = None,
         taskMetricsDistributions = None,
-        executorMetricsDistributions = None
+        executorMetricsDistributions = None,
+        isShufflePushEnabled = false,
+        shuffleMergersCount = 0
       )
       val taskTable = new TaskPagedTable(
         stageData,
@@ -140,8 +152,8 @@ class StagePageSuite extends SparkFunSuite with LocalSparkContext {
       // Simulate two tasks to test PEAK_EXECUTION_MEMORY correctness
       (1 to 2).foreach {
         taskId =>
-          val taskInfo = new TaskInfo(taskId, taskId, 0, 0, "0", "localhost", TaskLocality.ANY,
-            false)
+          val taskInfo = new TaskInfo(taskId, taskId, 0, taskId, 0,
+            "0", "localhost", TaskLocality.ANY, false)
           listener.onStageSubmitted(SparkListenerStageSubmitted(stageInfo))
           listener.onTaskStart(SparkListenerTaskStart(0, 0, taskInfo))
           taskInfo.markFinished(TaskState.FINISHED, System.currentTimeMillis())

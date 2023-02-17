@@ -23,7 +23,8 @@ import java.util.Locale
 
 import org.apache.spark.sql.AnalysisException
 import org.apache.spark.sql.catalyst.SQLConfHelper
-import org.apache.spark.sql.catalyst.analysis.{IndexAlreadyExistsException, NoSuchIndexException}
+import org.apache.spark.sql.catalyst.analysis.{IndexAlreadyExistsException, NonEmptyNamespaceException, NoSuchIndexException}
+import org.apache.spark.sql.connector.catalog.Identifier
 import org.apache.spark.sql.connector.expressions.NamedReference
 import org.apache.spark.sql.execution.datasources.jdbc.{JDBCOptions, JdbcUtils}
 import org.apache.spark.sql.execution.datasources.v2.TableSampleInfo
@@ -34,6 +35,15 @@ private object PostgresDialect extends JdbcDialect with SQLConfHelper {
 
   override def canHandle(url: String): Boolean =
     url.toLowerCase(Locale.ROOT).startsWith("jdbc:postgresql")
+
+  // See https://www.postgresql.org/docs/8.4/functions-aggregate.html
+  private val supportedAggregateFunctions = Set("MAX", "MIN", "SUM", "COUNT", "AVG",
+    "VAR_POP", "VAR_SAMP", "STDDEV_POP", "STDDEV_SAMP", "COVAR_POP", "COVAR_SAMP", "CORR",
+    "REGR_INTERCEPT", "REGR_R2", "REGR_SLOPE", "REGR_SXY")
+  private val supportedFunctions = supportedAggregateFunctions
+
+  override def isSupportedFunction(funcName: String): Boolean =
+    supportedFunctions.contains(funcName)
 
   override def getCatalystType(
       sqlType: Int, typeName: String, size: Int, md: MetadataBuilder): Option[DataType] = {
@@ -166,7 +176,7 @@ private object PostgresDialect extends JdbcDialect with SQLConfHelper {
   override def getTableSample(sample: TableSampleInfo): String = {
     // hard-coded to BERNOULLI for now because Spark doesn't have a way to specify sample
     // method name
-    s"TABLESAMPLE BERNOULLI" +
+    "TABLESAMPLE BERNOULLI" +
       s" (${(sample.upperBound - sample.lowerBound) * 100}) REPEATABLE (${sample.seed})"
   }
 
@@ -174,7 +184,7 @@ private object PostgresDialect extends JdbcDialect with SQLConfHelper {
   // https://www.postgresql.org/docs/14/sql-createindex.html
   override def createIndex(
       indexName: String,
-      tableName: String,
+      tableIdent: Identifier,
       columns: Array[NamedReference],
       columnsProperties: util.Map[NamedReference, util.Map[String, String]],
       properties: util.Map[String, String]): String = {
@@ -186,7 +196,7 @@ private object PostgresDialect extends JdbcDialect with SQLConfHelper {
       indexProperties = "WITH (" + indexPropertyList.mkString(", ") + ")"
     }
 
-    s"CREATE INDEX ${quoteIdentifier(indexName)} ON ${quoteIdentifier(tableName)}" +
+    s"CREATE INDEX ${quoteIdentifier(indexName)} ON ${quoteIdentifier(tableIdent.name())}" +
       s" $indexType (${columnList.mkString(", ")}) $indexProperties"
   }
 
@@ -195,16 +205,16 @@ private object PostgresDialect extends JdbcDialect with SQLConfHelper {
   override def indexExists(
       conn: Connection,
       indexName: String,
-      tableName: String,
+      tableIdent: Identifier,
       options: JDBCOptions): Boolean = {
-    val sql = s"SELECT * FROM pg_indexes WHERE tablename = '$tableName' AND" +
+    val sql = s"SELECT * FROM pg_indexes WHERE tablename = '${tableIdent.name()}' AND" +
       s" indexname = '$indexName'"
     JdbcUtils.checkIfIndexExists(conn, sql, options)
   }
 
   // DROP INDEX syntax
   // https://www.postgresql.org/docs/14/sql-dropindex.html
-  override def dropIndex(indexName: String, tableName: String): String = {
+  override def dropIndex(indexName: String, tableIdent: Identifier): String = {
     s"DROP INDEX ${quoteIdentifier(indexName)}"
   }
 
@@ -213,8 +223,20 @@ private object PostgresDialect extends JdbcDialect with SQLConfHelper {
       case sqlException: SQLException =>
         sqlException.getSQLState match {
           // https://www.postgresql.org/docs/14/errcodes-appendix.html
-          case "42P07" => throw new IndexAlreadyExistsException(message, cause = Some(e))
-          case "42704" => throw new NoSuchIndexException(message, cause = Some(e))
+          case "42P07" =>
+            // The message is: Failed to create index indexName in tableName
+            val regex = "(?s)Failed to create index (.*) in (.*)".r
+            val indexName = regex.findFirstMatchIn(message).get.group(1)
+            val tableName = regex.findFirstMatchIn(message).get.group(2)
+            throw new IndexAlreadyExistsException(
+              indexName = indexName, tableName = tableName, cause = Some(e))
+          case "42704" =>
+            // The message is: Failed to drop index indexName in tableName
+            val regex = "(?s)Failed to drop index (.*) in (.*)".r
+            val indexName = regex.findFirstMatchIn(message).get.group(1)
+            val tableName = regex.findFirstMatchIn(message).get.group(2)
+            throw new NoSuchIndexException(indexName, tableName, cause = Some(e))
+          case "2BP01" => throw NonEmptyNamespaceException(message, cause = Some(e))
           case _ => super.classifyException(message, e)
         }
       case unsupported: UnsupportedOperationException => throw unsupported

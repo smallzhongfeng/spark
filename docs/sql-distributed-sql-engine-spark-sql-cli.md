@@ -102,7 +102,7 @@ When `./bin/spark-sql` is run without either the `-e` or `-f` option, it enters 
 Use `;` (semicolon) to terminate commands. Notice:
 1. The CLI use `;` to terminate commands only when it's at the end of line, and it's not escaped by `\\;`.
 2. `;` is the only way to terminate commands. If the user types `SELECT 1` and presses enter, the console will just wait for input.
-3. If the user types multiple commands in one line like `SELECT 1; SELECT 2;`, the commands `SELECT 1` and `SELECT 2` will be executed separatly.
+3. If the user types multiple commands in one line like `SELECT 1; SELECT 2;`, the commands `SELECT 1` and `SELECT 2` will be executed separately.
 4. If `;` appears within a SQL statement (not the end of the line), then it has no special meanings:
    ```sql
    -- This is a ; comment
@@ -113,7 +113,7 @@ Use `;` (semicolon) to terminate commands. Notice:
    /* This is a comment contains ;
    */ SELECT 1;
    ```
-   However, if ';' is the end of the line, it terminates the SQL statement. The example above will be terminated into  `/* This is a comment contains ` and `*/ SELECT 1`, Spark will submit these two commands separated and throw parser error (`unclosed bracketed comment` and `extraneous input '*/'`).
+   However, if ';' is the end of the line, it terminates the SQL statement. The example above will be terminated into  `/* This is a comment contains ` and `*/ SELECT 1`, Spark will submit these two commands separated and throw parser error (`unclosed bracketed comment` and `Syntax error at or near '*/'`).
 
 <table class="table">
 <tr><th>Command</th><th>Description</th></tr>
@@ -186,6 +186,6 @@ Example of entering interactive mode with escape `;` in comment:
 
     ./bin/spark-sql
     spark-sql>/* This is a comment contains \\;
-             > It won't be terminaled by \\; */
+             > It won't be terminated by \\; */
              > SELECT 1;
     1

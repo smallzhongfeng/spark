@@ -18,14 +18,13 @@
 package org.apache.spark.sql.catalyst.encoders
 
 import scala.reflect.ClassTag
-import scala.reflect.runtime.universe.{typeTag, TypeTag}
+import scala.reflect.runtime.universe.TypeTag
 
 import org.apache.spark.sql.Encoder
 import org.apache.spark.sql.catalyst.{InternalRow, JavaTypeInference, ScalaReflection}
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, GetColumnByOrdinal, SimpleAnalyzer, UnresolvedAttribute, UnresolvedExtractValue}
 import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder.{Deserializer, Serializer}
 import org.apache.spark.sql.catalyst.expressions._
-import org.apache.spark.sql.catalyst.expressions.codegen.GenerateUnsafeProjection
 import org.apache.spark.sql.catalyst.expressions.objects.{AssertNotNull, InitializeJavaBean, Invoke, NewInstance}
 import org.apache.spark.sql.catalyst.optimizer.{ReassignLambdaVariableID, SimplifyCasts}
 import org.apache.spark.sql.catalyst.plans.logical.{CatalystSerde, DeserializeToObject, LeafNode, LocalRelation}
@@ -48,31 +47,19 @@ import org.apache.spark.util.Utils
 object ExpressionEncoder {
 
   def apply[T : TypeTag](): ExpressionEncoder[T] = {
-    val mirror = ScalaReflection.mirror
-    val tpe = typeTag[T].in(mirror).tpe
+    apply(ScalaReflection.encoderFor[T])
+  }
 
-    val cls = mirror.runtimeClass(tpe)
-    val serializer = ScalaReflection.serializerForType(tpe)
-    val deserializer = ScalaReflection.deserializerForType(tpe)
-
+  def apply[T](enc: AgnosticEncoder[T]): ExpressionEncoder[T] = {
     new ExpressionEncoder[T](
-      serializer,
-      deserializer,
-      ClassTag[T](cls))
+      ScalaReflection.serializerFor(enc),
+      ScalaReflection.deserializerFor(enc),
+      enc.clsTag)
   }
 
   // TODO: improve error message for java bean encoder.
   def javaBean[T](beanClass: Class[T]): ExpressionEncoder[T] = {
-    val schema = JavaTypeInference.inferDataType(beanClass)._1
-    assert(schema.isInstanceOf[StructType])
-
-    val objSerializer = JavaTypeInference.serializerFor(beanClass)
-    val objDeserializer = JavaTypeInference.deserializerFor(beanClass)
-
-    new ExpressionEncoder[T](
-      objSerializer,
-      objDeserializer,
-      ClassTag[T](beanClass))
+     apply(JavaTypeInference.encoderFor(beanClass))
   }
 
   /**
@@ -201,7 +188,7 @@ object ExpressionEncoder {
     override def apply(t: T): InternalRow = try {
       if (extractProjection == null) {
         inputRow = new GenericInternalRow(1)
-        extractProjection = GenerateUnsafeProjection.generate(expressions)
+        extractProjection = UnsafeProjection.create(expressions)
       }
       inputRow(0) = t
       extractProjection(inputRow)

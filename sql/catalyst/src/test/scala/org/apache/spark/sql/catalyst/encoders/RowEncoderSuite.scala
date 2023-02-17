@@ -17,6 +17,7 @@
 
 package org.apache.spark.sql.catalyst.encoders
 
+import scala.collection.mutable
 import scala.util.Random
 
 import org.apache.spark.sql.{RandomDataGenerator, Row}
@@ -31,12 +32,11 @@ import org.apache.spark.sql.types.DataTypeTestUtils.{dayTimeIntervalTypes, yearM
 class ExamplePoint(val x: Double, val y: Double) extends Serializable {
   override def hashCode: Int = 41 * (41 + x.toInt) + y.toInt
   override def equals(that: Any): Boolean = {
-    if (that.isInstanceOf[ExamplePoint]) {
-      val e = that.asInstanceOf[ExamplePoint]
-      (this.x == e.x || (this.x.isNaN && e.x.isNaN) || (this.x.isInfinity && e.x.isInfinity)) &&
-        (this.y == e.y || (this.y.isNaN && e.y.isNaN) || (this.y.isInfinity && e.y.isInfinity))
-    } else {
-      false
+    that match {
+      case e: ExamplePoint =>
+        (this.x == e.x || (this.x.isNaN && e.x.isNaN) || (this.x.isInfinity && e.x.isInfinity)) &&
+          (this.y == e.y || (this.y.isNaN && e.y.isNaN) || (this.y.isInfinity && e.y.isInfinity))
+      case _ => false
     }
   }
 }
@@ -311,6 +311,19 @@ class RowEncoderSuite extends CodegenInterpretedPlanTest {
     assert(e4.getMessage.contains("java.lang.String is not a valid external type"))
   }
 
+  private def roundTripArray[T](dt: DataType, nullable: Boolean, data: Array[T]): Unit = {
+    val schema = new StructType().add("a", ArrayType(dt, nullable))
+    test(s"RowEncoder should return WrappedArray with properly typed array for $schema") {
+      val encoder = RowEncoder(schema).resolveAndBind()
+      val result = fromRow(encoder, toRow(encoder, Row(data))).getAs[mutable.WrappedArray[_]](0)
+      assert(result.array.getClass === data.getClass)
+      assert(result === data)
+    }
+  }
+
+  roundTripArray(IntegerType, nullable = false, Array(1, 2, 3).map(Int.box))
+  roundTripArray(StringType, nullable = true, Array("hello", "world", "!", null))
+
   test("SPARK-25791: Datatype of serializers should be accessible") {
     val udtSQLType = new StructType().add("a", IntegerType)
     val pythonUDT = new PythonUserDefinedType(udtSQLType, "pyUDT", "serializedPyClass")
@@ -435,5 +448,38 @@ class RowEncoderSuite extends CodegenInterpretedPlanTest {
         }
       }
     }
+  }
+
+  test("SPARK-38437: encoding TimestampType/DateType from any supported datetime Java types") {
+    Seq(true, false).foreach { java8Api =>
+      withSQLConf(SQLConf.DATETIME_JAVA8API_ENABLED.key -> java8Api.toString) {
+        val schema = new StructType()
+          .add("t0", TimestampType)
+          .add("t1", TimestampType)
+          .add("d0", DateType)
+          .add("d1", DateType)
+        val encoder = RowEncoder(schema, lenient = true).resolveAndBind()
+        val instant = java.time.Instant.parse("2019-02-26T16:56:00Z")
+        val ld = java.time.LocalDate.parse("2022-03-08")
+        val row = encoder.createSerializer().apply(
+          Row(instant, java.sql.Timestamp.from(instant), ld, java.sql.Date.valueOf(ld)))
+        val expectedMicros = DateTimeUtils.instantToMicros(instant)
+        assert(row.getLong(0) === expectedMicros)
+        assert(row.getLong(1) === expectedMicros)
+        val expectedDays = DateTimeUtils.localDateToDays(ld)
+        assert(row.getInt(2) === expectedDays)
+        assert(row.getInt(3) === expectedDays)
+      }
+    }
+  }
+
+  test("Encoding an ArraySeq/WrappedArray in scala-2.13") {
+    val schema = new StructType()
+      .add("headers", ArrayType(new StructType()
+        .add("key", StringType)
+        .add("value", BinaryType)))
+    val encoder = RowEncoder(schema, lenient = true).resolveAndBind()
+    val data = Row(mutable.WrappedArray.make(Array(Row("key", "value".getBytes))))
+    val row = encoder.createSerializer()(data)
   }
 }

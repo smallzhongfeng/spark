@@ -305,7 +305,7 @@ private[spark] class MemoryStore(
         val unrolledIterator = if (valuesHolder.vector != null) {
           valuesHolder.vector.iterator
         } else {
-          valuesHolder.arrayValues.toIterator
+          valuesHolder.arrayValues.iterator
         }
 
         Left(new PartiallyUnrolledIterator(
@@ -370,7 +370,7 @@ private[spark] class MemoryStore(
     val entry = entries.synchronized { entries.get(blockId) }
     entry match {
       case null => None
-      case e: DeserializedMemoryEntry[_] =>
+      case _: DeserializedMemoryEntry[_] =>
         throw new IllegalArgumentException("should only call getBytes on serialized blocks")
       case SerializedMemoryEntry(bytes, _, _) => Some(bytes)
     }
@@ -504,7 +504,7 @@ private[spark] class MemoryStore(
         try {
           logInfo(s"${selectedBlocks.size} blocks selected for dropping " +
             s"(${Utils.bytesToString(freedMemory)} bytes)")
-          (0 until selectedBlocks.size).foreach { idx =>
+          selectedBlocks.indices.foreach { idx =>
             val blockId = selectedBlocks(idx)
             val entry = entries.synchronized {
               entries.get(blockId)

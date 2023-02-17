@@ -27,9 +27,9 @@ import org.apache.spark.api.python.{ChainedPythonFunctions, PythonEvalType}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions._
-import org.apache.spark.sql.catalyst.plans.physical.{AllTuples, ClusteredDistribution, Distribution, Partitioning}
 import org.apache.spark.sql.errors.QueryExecutionErrors
 import org.apache.spark.sql.execution.{ExternalAppendOnlyUnsafeRowArray, SparkPlan}
+import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 import org.apache.spark.sql.execution.window._
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.util.ArrowUtils
@@ -85,28 +85,10 @@ case class WindowInPandasExec(
     partitionSpec: Seq[Expression],
     orderSpec: Seq[SortOrder],
     child: SparkPlan)
-  extends WindowExecBase {
-
-  override def output: Seq[Attribute] =
-    child.output ++ windowExpression.map(_.toAttribute)
-
-  override def requiredChildDistribution: Seq[Distribution] = {
-    if (partitionSpec.isEmpty) {
-      // Only show warning when the number of bytes is larger than 100 MiB?
-      logWarning("No Partition Defined for Window operation! Moving all data to a single "
-        + "partition, this can cause serious performance degradation.")
-      AllTuples :: Nil
-    } else {
-      ClusteredDistribution(partitionSpec) :: Nil
-    }
-  }
-
-  override def requiredChildOrdering: Seq[Seq[SortOrder]] =
-    Seq(partitionSpec.map(SortOrder(_, Ascending)) ++ orderSpec)
-
-  override def outputOrdering: Seq[SortOrder] = child.outputOrdering
-
-  override def outputPartitioning: Partitioning = child.outputPartitioning
+  extends WindowExecBase with PythonSQLMetrics {
+  override lazy val metrics: Map[String, SQLMetric] = pythonMetrics ++ Map(
+    "spillSize" -> SQLMetrics.createSizeMetric(sparkContext, "spill size")
+  )
 
   /**
    * Helper functions and data structures for window bounds
@@ -135,7 +117,7 @@ case class WindowInPandasExec(
         (ChainedPythonFunctions(chained.funcs ++ Seq(udf.func)), children)
       case children =>
         // There should not be any other UDFs, or the children can't be evaluated directly.
-        assert(children.forall(_.find(_.isInstanceOf[PythonUDF]).isEmpty))
+        assert(children.forall(!_.exists(_.isInstanceOf[PythonUDF])))
         (ChainedPythonFunctions(Seq(udf.func)), udf.children)
     }
   }
@@ -267,6 +249,7 @@ case class WindowInPandasExec(
 
     val allInputs = windowBoundsInput ++ dataInputs
     val allInputTypes = allInputs.map(_.dataType)
+    val spillSize = longMetric("spillSize")
 
     // Start processing.
     child.execute().mapPartitions { iter =>
@@ -354,8 +337,15 @@ case class WindowInPandasExec(
         // Iteration
         var rowIndex = 0
 
-        override final def hasNext: Boolean =
-          (bufferIterator != null && bufferIterator.hasNext) || nextRowAvailable
+        override final def hasNext: Boolean = {
+          val found = (bufferIterator != null && bufferIterator.hasNext) || nextRowAvailable
+          if (!found) {
+            // clear final partition
+            buffer.clear()
+            spillSize += buffer.spillSize
+          }
+          found
+        }
 
         override final def next(): Iterator[UnsafeRow] = {
           // Load the next partition if we need to.
@@ -391,7 +381,8 @@ case class WindowInPandasExec(
         argOffsets,
         pythonInputSchema,
         sessionLocalTimeZone,
-        pythonRunnerConf).compute(pythonInput, context.partitionId(), context)
+        pythonRunnerConf,
+        pythonMetrics).compute(pythonInput, context.partitionId(), context)
 
       val joined = new JoinedRow
 

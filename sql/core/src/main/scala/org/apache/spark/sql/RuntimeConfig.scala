@@ -17,6 +17,7 @@
 
 package org.apache.spark.sql
 
+import org.apache.spark.SPARK_DOC_ROOT
 import org.apache.spark.annotation.Stable
 import org.apache.spark.internal.config.{ConfigEntry, OptionalConfigEntry}
 import org.apache.spark.sql.errors.QueryCompilationErrors
@@ -58,6 +59,14 @@ class RuntimeConfig private[sql](sqlConf: SQLConf = new SQLConf) {
    */
   def set(key: String, value: Long): Unit = {
     set(key, value.toString)
+  }
+
+  /**
+   * Sets the given Spark runtime configuration property.
+   */
+  protected[sql] def set[T](entry: ConfigEntry[T], value: T): Unit = {
+    requireNonStaticConf(entry.key)
+    sqlConf.setConf(entry, value)
   }
 
   /**
@@ -154,7 +163,7 @@ class RuntimeConfig private[sql](sqlConf: SQLConf = new SQLConf) {
     }
     if (sqlConf.setCommandRejectsSparkCoreConfs &&
         ConfigEntry.findEntry(key) != null && !SQLConf.containsConfigKey(key)) {
-      throw QueryCompilationErrors.cannotModifyValueOfSparkConfigError(key)
+      throw QueryCompilationErrors.cannotModifyValueOfSparkConfigError(key, SPARK_DOC_ROOT)
     }
   }
 }

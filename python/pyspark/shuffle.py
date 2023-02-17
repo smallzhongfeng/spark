@@ -33,7 +33,7 @@ from pyspark.serializers import (
     CompressedSerializer,
     AutoBatchedSerializer,
 )
-from pyspark.util import fail_on_stopiteration  # type: ignore
+from pyspark.util import fail_on_stopiteration
 
 
 try:
@@ -51,7 +51,6 @@ try:
         else:
             info = process.get_memory_info()
         return info.rss >> 20
-
 
 except ImportError:
 
@@ -79,9 +78,12 @@ def _get_local_dirs(sub):
     path = os.environ.get("SPARK_LOCAL_DIRS", "/tmp")
     dirs = path.split(",")
     if len(dirs) > 1:
-        # different order in different processes and instances
-        rnd = random.Random(os.getpid() + id(dirs))
-        random.shuffle(dirs, rnd.random)
+        if sys.version_info < (3, 11):
+            # different order in different processes and instances
+            rnd = random.Random(os.getpid() + id(dirs))
+            random.shuffle(dirs, rnd.random)
+        else:
+            random.shuffle(dirs)
     return [os.path.join(d, "python", str(os.getpid()), sub) for d in dirs]
 
 

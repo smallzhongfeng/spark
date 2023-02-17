@@ -19,7 +19,7 @@ package org.apache.spark.ml.source.image
 
 import com.google.common.io.{ByteStreams, Closeables}
 import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs.{FileStatus, Path}
+import org.apache.hadoop.fs.FileStatus
 import org.apache.hadoop.mapreduce.Job
 
 import org.apache.spark.ml.image.ImageSchema
@@ -71,8 +71,8 @@ private[image] class ImageFileFormat extends FileFormat with DataSourceRegister 
       if (!imageSourceOptions.dropInvalid && requiredSchema.isEmpty) {
         Iterator(emptyUnsafeRow)
       } else {
-        val origin = file.filePath
-        val path = new Path(origin)
+        val origin = file.urlEncodedPath
+        val path = file.toPath
         val fs = path.getFileSystem(broadcastedHadoopConf.value.value)
         val stream = fs.open(path)
         val bytes = try {
@@ -82,7 +82,7 @@ private[image] class ImageFileFormat extends FileFormat with DataSourceRegister 
         }
         val resultOpt = ImageSchema.decode(origin, bytes)
         val filteredResult = if (imageSourceOptions.dropInvalid) {
-          resultOpt.toIterator
+          resultOpt.iterator
         } else {
           Iterator(resultOpt.getOrElse(ImageSchema.invalidImageRow(origin)))
         }

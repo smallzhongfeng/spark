@@ -32,10 +32,20 @@ class Module(object):
     files have changed.
     """
 
-    def __init__(self, name, dependencies, source_file_regexes, build_profile_flags=(),
-                 environ=None, sbt_test_goals=(), python_test_goals=(),
-                 excluded_python_implementations=(), test_tags=(), should_run_r_tests=False,
-                 should_run_build_tests=False):
+    def __init__(
+        self,
+        name,
+        dependencies,
+        source_file_regexes,
+        build_profile_flags=(),
+        environ=None,
+        sbt_test_goals=(),
+        python_test_goals=(),
+        excluded_python_implementations=(),
+        test_tags=(),
+        should_run_r_tests=False,
+        should_run_build_tests=False,
+    ):
         """
         Define a new module.
 
@@ -94,12 +104,13 @@ class Module(object):
     def __hash__(self):
         return hash(self.name)
 
+
 tags = Module(
     name="tags",
     dependencies=[],
     source_file_regexes=[
         "common/tags/",
-    ]
+    ],
 )
 
 kvstore = Module(
@@ -177,9 +188,9 @@ catalyst = Module(
     sbt_test_goals=[
         "catalyst/test",
     ],
-    environ=None if "GITHUB_ACTIONS" not in os.environ else {
-        "ENABLE_DOCKER_INTEGRATION_TESTS": "1"
-    },
+    environ=None
+    if "GITHUB_ACTIONS" not in os.environ
+    else {"ENABLE_DOCKER_INTEGRATION_TESTS": "1"},
 )
 
 sql = Module(
@@ -191,9 +202,9 @@ sql = Module(
     sbt_test_goals=[
         "sql/test",
     ],
-    environ=None if "GITHUB_ACTIONS" not in os.environ else {
-        "ENABLE_DOCKER_INTEGRATION_TESTS": "1"
-    },
+    environ=None
+    if "GITHUB_ACTIONS" not in os.environ
+    else {"ENABLE_DOCKER_INTEGRATION_TESTS": "1"},
 )
 
 hive = Module(
@@ -209,9 +220,7 @@ hive = Module(
     sbt_test_goals=[
         "hive/test",
     ],
-    test_tags=[
-        "org.apache.spark.tags.ExtendedHiveTest"
-    ]
+    test_tags=["org.apache.spark.tags.ExtendedHiveTest"],
 )
 
 repl = Module(
@@ -237,29 +246,52 @@ hive_thriftserver = Module(
     ],
     sbt_test_goals=[
         "hive-thriftserver/test",
-    ]
+    ],
 )
 
 avro = Module(
     name="avro",
     dependencies=[sql],
     source_file_regexes=[
-        "external/avro",
+        "connector/avro",
     ],
     sbt_test_goals=[
         "avro/test",
-    ]
+    ],
 )
 
 sql_kafka = Module(
     name="sql-kafka-0-10",
     dependencies=[sql],
     source_file_regexes=[
-        "external/kafka-0-10-sql",
+        "connector/kafka-0-10-sql",
     ],
     sbt_test_goals=[
         "sql-kafka-0-10/test",
-    ]
+    ],
+)
+
+connect = Module(
+    name="connect",
+    dependencies=[sql],
+    source_file_regexes=[
+        "connector/connect",
+    ],
+    sbt_test_goals=[
+        "connect/test",
+        "connect-client-jvm/test",
+    ],
+)
+
+protobuf = Module(
+    name="protobuf",
+    dependencies=[sql],
+    source_file_regexes=[
+        "connector/protobuf",
+    ],
+    sbt_test_goals=[
+        "protobuf/test",
+    ],
 )
 
 sketch = Module(
@@ -268,9 +300,7 @@ sketch = Module(
     source_file_regexes=[
         "common/sketch/",
     ],
-    sbt_test_goals=[
-        "sketch/test"
-    ]
+    sbt_test_goals=["sketch/test"],
 )
 
 graphx = Module(
@@ -279,9 +309,7 @@ graphx = Module(
     source_file_regexes=[
         "graphx/",
     ],
-    sbt_test_goals=[
-        "graphx/test"
-    ]
+    sbt_test_goals=["graphx/test"],
 )
 
 streaming = Module(
@@ -292,7 +320,7 @@ streaming = Module(
     ],
     sbt_test_goals=[
         "streaming/test",
-    ]
+    ],
 )
 
 
@@ -304,18 +332,16 @@ streaming_kinesis_asl = Module(
     name="streaming-kinesis-asl",
     dependencies=[tags, core],
     source_file_regexes=[
-        "external/kinesis-asl/",
-        "external/kinesis-asl-assembly/",
+        "connector/kinesis-asl/",
+        "connector/kinesis-asl-assembly/",
     ],
     build_profile_flags=[
         "-Pkinesis-asl",
     ],
-    environ={
-        "ENABLE_KINESIS_TESTS": "1"
-    },
+    environ={"ENABLE_KINESIS_TESTS": "1"},
     sbt_test_goals=[
         "streaming-kinesis-asl/test",
-    ]
+    ],
 )
 
 
@@ -324,14 +350,11 @@ streaming_kafka_0_10 = Module(
     dependencies=[streaming, core],
     source_file_regexes=[
         # The ending "/" is necessary otherwise it will include "sql-kafka" codes
-        "external/kafka-0-10/",
-        "external/kafka-0-10-assembly",
-        "external/kafka-0-10-token-provider",
+        "connector/kafka-0-10/",
+        "connector/kafka-0-10-assembly",
+        "connector/kafka-0-10-token-provider",
     ],
-    sbt_test_goals=[
-        "streaming-kafka-0-10/test",
-        "token-provider-kafka-0-10/test"
-    ]
+    sbt_test_goals=["streaming-kafka-0-10/test", "token-provider-kafka-0-10/test"],
 )
 
 
@@ -343,7 +366,7 @@ mllib_local = Module(
     ],
     sbt_test_goals=[
         "mllib-local/test",
-    ]
+    ],
 )
 
 
@@ -356,7 +379,7 @@ mllib = Module(
     ],
     sbt_test_goals=[
         "mllib/test",
-    ]
+    ],
 )
 
 
@@ -368,15 +391,13 @@ examples = Module(
     ],
     sbt_test_goals=[
         "examples/test",
-    ]
+    ],
 )
 
 pyspark_core = Module(
     name="pyspark-core",
     dependencies=[core],
-    source_file_regexes=[
-        "python/(?!pyspark/(ml|mllib|sql|streaming))"
-    ],
+    source_file_regexes=["python/(?!pyspark/(ml|mllib|sql|streaming))"],
     python_test_goals=[
         # doctests
         "pyspark.rdd",
@@ -384,9 +405,11 @@ pyspark_core = Module(
         "pyspark.conf",
         "pyspark.broadcast",
         "pyspark.accumulators",
+        "pyspark.files",
         "pyspark.serializers",
         "pyspark.profiler",
         "pyspark.shuffle",
+        "pyspark.taskcontext",
         "pyspark.util",
         # unittests
         "pyspark.tests.test_appsubmit",
@@ -396,9 +419,11 @@ pyspark_core = Module(
         "pyspark.tests.test_daemon",
         "pyspark.tests.test_install_spark",
         "pyspark.tests.test_join",
+        "pyspark.tests.test_memory_profiler",
         "pyspark.tests.test_profiler",
         "pyspark.tests.test_rdd",
         "pyspark.tests.test_rddbarrier",
+        "pyspark.tests.test_rddsampler",
         "pyspark.tests.test_readwrite",
         "pyspark.tests.test_serializers",
         "pyspark.tests.test_shuffle",
@@ -406,15 +431,14 @@ pyspark_core = Module(
         "pyspark.tests.test_taskcontext",
         "pyspark.tests.test_util",
         "pyspark.tests.test_worker",
-    ]
+        "pyspark.tests.test_stage_sched",
+    ],
 )
 
 pyspark_sql = Module(
     name="pyspark-sql",
-    dependencies=[pyspark_core, hive, avro],
-    source_file_regexes=[
-        "python/pyspark/sql"
-    ],
+    dependencies=[pyspark_core, hive, avro, protobuf],
+    source_file_regexes=["python/pyspark/sql"],
     python_test_goals=[
         # doctests
         "pyspark.sql.types",
@@ -427,10 +451,13 @@ pyspark_sql = Module(
         "pyspark.sql.group",
         "pyspark.sql.functions",
         "pyspark.sql.readwriter",
-        "pyspark.sql.streaming",
+        "pyspark.sql.streaming.query",
+        "pyspark.sql.streaming.readwriter",
+        "pyspark.sql.streaming.listener",
         "pyspark.sql.udf",
         "pyspark.sql.window",
         "pyspark.sql.avro.functions",
+        "pyspark.sql.protobuf.functions",
         "pyspark.sql.pandas.conversion",
         "pyspark.sql.pandas.map_ops",
         "pyspark.sql.pandas.group_ops",
@@ -441,6 +468,7 @@ pyspark_sql = Module(
         "pyspark.sql.observation",
         # unittests
         "pyspark.sql.tests.test_arrow",
+        "pyspark.sql.tests.test_arrow_python_udf",
         "pyspark.sql.tests.test_catalog",
         "pyspark.sql.tests.test_column",
         "pyspark.sql.tests.test_conf",
@@ -449,52 +477,84 @@ pyspark_sql = Module(
         "pyspark.sql.tests.test_datasources",
         "pyspark.sql.tests.test_functions",
         "pyspark.sql.tests.test_group",
-        "pyspark.sql.tests.test_pandas_cogrouped_map",
-        "pyspark.sql.tests.test_pandas_grouped_map",
-        "pyspark.sql.tests.test_pandas_map",
+        "pyspark.sql.tests.pandas.test_pandas_cogrouped_map",
+        "pyspark.sql.tests.pandas.test_pandas_grouped_map",
+        "pyspark.sql.tests.pandas.test_pandas_grouped_map_with_state",
+        "pyspark.sql.tests.pandas.test_pandas_map",
         "pyspark.sql.tests.test_arrow_map",
-        "pyspark.sql.tests.test_pandas_udf",
-        "pyspark.sql.tests.test_pandas_udf_grouped_agg",
-        "pyspark.sql.tests.test_pandas_udf_scalar",
-        "pyspark.sql.tests.test_pandas_udf_typehints",
-        "pyspark.sql.tests.test_pandas_udf_window",
+        "pyspark.sql.tests.pandas.test_pandas_udf",
+        "pyspark.sql.tests.pandas.test_pandas_udf_grouped_agg",
+        "pyspark.sql.tests.pandas.test_pandas_udf_scalar",
+        "pyspark.sql.tests.pandas.test_pandas_udf_typehints",
+        "pyspark.sql.tests.pandas.test_pandas_udf_typehints_with_future_annotations",
+        "pyspark.sql.tests.pandas.test_pandas_udf_window",
+        "pyspark.sql.tests.test_pandas_sqlmetrics",
         "pyspark.sql.tests.test_readwriter",
         "pyspark.sql.tests.test_serde",
         "pyspark.sql.tests.test_session",
-        "pyspark.sql.tests.test_streaming",
+        "pyspark.sql.tests.streaming.test_streaming",
+        "pyspark.sql.tests.streaming.test_streaming_listener",
         "pyspark.sql.tests.test_types",
         "pyspark.sql.tests.test_udf",
         "pyspark.sql.tests.test_udf_profiler",
         "pyspark.sql.tests.test_utils",
-    ]
+    ],
 )
 
+pyspark_connect = Module(
+    name="pyspark-connect",
+    dependencies=[pyspark_sql, connect],
+    source_file_regexes=["python/pyspark/sql/connect"],
+    python_test_goals=[
+        # doctests
+        "pyspark.sql.connect.catalog",
+        "pyspark.sql.connect.group",
+        "pyspark.sql.connect.session",
+        "pyspark.sql.connect.window",
+        "pyspark.sql.connect.column",
+        "pyspark.sql.connect.readwriter",
+        "pyspark.sql.connect.dataframe",
+        "pyspark.sql.connect.functions",
+        # unittests
+        "pyspark.sql.tests.connect.test_connect_plan",
+        "pyspark.sql.tests.connect.test_connect_basic",
+        "pyspark.sql.tests.connect.test_connect_function",
+        "pyspark.sql.tests.connect.test_connect_column",
+        "pyspark.sql.tests.connect.test_parity_datasources",
+        "pyspark.sql.tests.connect.test_parity_catalog",
+        "pyspark.sql.tests.connect.test_parity_serde",
+        "pyspark.sql.tests.connect.test_parity_functions",
+        "pyspark.sql.tests.connect.test_parity_group",
+        "pyspark.sql.tests.connect.test_parity_dataframe",
+        "pyspark.sql.tests.connect.test_parity_types",
+        "pyspark.sql.tests.connect.test_parity_column",
+        "pyspark.sql.tests.connect.test_parity_readwriter",
+        "pyspark.sql.tests.connect.test_parity_udf",
+        "pyspark.sql.tests.connect.test_parity_pandas_udf",
+    ],
+    excluded_python_implementations=[
+        "PyPy"  # Skip these tests under PyPy since they require numpy, pandas, and pyarrow and
+        # they aren't available there
+    ],
+)
 
 pyspark_resource = Module(
     name="pyspark-resource",
-    dependencies=[
-        pyspark_core
-    ],
-    source_file_regexes=[
-        "python/pyspark/resource"
-    ],
+    dependencies=[pyspark_core],
+    source_file_regexes=["python/pyspark/resource"],
     python_test_goals=[
+        # doctests
+        "pyspark.resource.profile",
         # unittests
         "pyspark.resource.tests.test_resources",
-    ]
+    ],
 )
 
 
 pyspark_streaming = Module(
     name="pyspark-streaming",
-    dependencies=[
-        pyspark_core,
-        streaming,
-        streaming_kinesis_asl
-    ],
-    source_file_regexes=[
-        "python/pyspark/streaming"
-    ],
+    dependencies=[pyspark_core, streaming, streaming_kinesis_asl],
+    source_file_regexes=["python/pyspark/streaming"],
     python_test_goals=[
         # doctests
         "pyspark.streaming.util",
@@ -503,16 +563,14 @@ pyspark_streaming = Module(
         "pyspark.streaming.tests.test_dstream",
         "pyspark.streaming.tests.test_kinesis",
         "pyspark.streaming.tests.test_listener",
-    ]
+    ],
 )
 
 
 pyspark_mllib = Module(
     name="pyspark-mllib",
     dependencies=[pyspark_core, pyspark_streaming, pyspark_sql, mllib],
-    source_file_regexes=[
-        "python/pyspark/mllib"
-    ],
+    source_file_regexes=["python/pyspark/mllib"],
     python_test_goals=[
         # doctests
         "pyspark.mllib.classification",
@@ -539,16 +597,14 @@ pyspark_mllib = Module(
     ],
     excluded_python_implementations=[
         "PyPy"  # Skip these tests under PyPy since they require numpy and it isn't available there
-    ]
+    ],
 )
 
 
 pyspark_ml = Module(
     name="pyspark-ml",
     dependencies=[pyspark_core, pyspark_mllib],
-    source_file_regexes=[
-        "python/pyspark/ml/"
-    ],
+    source_file_regexes=["python/pyspark/ml/"],
     python_test_goals=[
         # doctests
         "pyspark.ml.classification",
@@ -568,8 +624,10 @@ pyspark_ml = Module(
         "pyspark.ml.tests.test_base",
         "pyspark.ml.tests.test_evaluation",
         "pyspark.ml.tests.test_feature",
+        "pyspark.ml.tests.test_functions",
         "pyspark.ml.tests.test_image",
         "pyspark.ml.tests.test_linalg",
+        "pyspark.ml.tests.test_model_cache",
         "pyspark.ml.tests.test_param",
         "pyspark.ml.tests.test_persistence",
         "pyspark.ml.tests.test_pipeline",
@@ -578,18 +636,18 @@ pyspark_ml = Module(
         "pyspark.ml.tests.test_tuning",
         "pyspark.ml.tests.test_util",
         "pyspark.ml.tests.test_wrapper",
+        "pyspark.ml.torch.tests.test_distributor",
+        "pyspark.ml.torch.tests.test_log_communication",
     ],
     excluded_python_implementations=[
         "PyPy"  # Skip these tests under PyPy since they require numpy and it isn't available there
-    ]
+    ],
 )
 
 pyspark_pandas = Module(
     name="pyspark-pandas",
     dependencies=[pyspark_core, pyspark_sql],
-    source_file_regexes=[
-        "python/pyspark/pandas/"
-    ],
+    source_file_regexes=["python/pyspark/pandas/"],
     python_test_goals=[
         # doctests
         "pyspark.pandas.accessors",
@@ -602,13 +660,13 @@ pyspark_pandas = Module(
         "pyspark.pandas.groupby",
         "pyspark.pandas.indexing",
         "pyspark.pandas.internal",
-        "pyspark.pandas.ml",
         "pyspark.pandas.mlflow",
         "pyspark.pandas.namespace",
         "pyspark.pandas.numpy_compat",
         "pyspark.pandas.sql_processor",
         "pyspark.pandas.sql_formatter",
         "pyspark.pandas.strings",
+        "pyspark.pandas.supported_api_gen",
         "pyspark.pandas.utils",
         "pyspark.pandas.window",
         "pyspark.pandas.indexes.base",
@@ -632,6 +690,7 @@ pyspark_pandas = Module(
         "pyspark.pandas.tests.data_type_ops.test_num_ops",
         "pyspark.pandas.tests.data_type_ops.test_string_ops",
         "pyspark.pandas.tests.data_type_ops.test_udt_ops",
+        "pyspark.pandas.tests.data_type_ops.test_timedelta_ops",
         "pyspark.pandas.tests.indexes.test_category",
         "pyspark.pandas.tests.indexes.test_timedelta",
         "pyspark.pandas.tests.plot.test_frame_plot",
@@ -649,6 +708,7 @@ pyspark_pandas = Module(
         "pyspark.pandas.tests.test_expanding",
         "pyspark.pandas.tests.test_extension",
         "pyspark.pandas.tests.test_frame_spark",
+        "pyspark.pandas.tests.test_generic_functions",
         "pyspark.pandas.tests.test_indexops_spark",
         "pyspark.pandas.tests.test_internal",
         "pyspark.pandas.tests.test_namespace",
@@ -656,8 +716,10 @@ pyspark_pandas = Module(
         "pyspark.pandas.tests.test_ops_on_diff_frames_groupby_expanding",
         "pyspark.pandas.tests.test_ops_on_diff_frames_groupby_rolling",
         "pyspark.pandas.tests.test_repr",
+        "pyspark.pandas.tests.test_resample",
         "pyspark.pandas.tests.test_reshape",
         "pyspark.pandas.tests.test_rolling",
+        "pyspark.pandas.tests.test_scalars",
         "pyspark.pandas.tests.test_series_conversion",
         "pyspark.pandas.tests.test_series_datetime",
         "pyspark.pandas.tests.test_series_string",
@@ -669,16 +731,14 @@ pyspark_pandas = Module(
     ],
     excluded_python_implementations=[
         "PyPy"  # Skip these tests under PyPy since they require numpy, pandas, and pyarrow and
-                # they aren't available there
-    ]
+        # they aren't available there
+    ],
 )
 
 pyspark_pandas_slow = Module(
     name="pyspark-pandas-slow",
     dependencies=[pyspark_core, pyspark_sql],
-    source_file_regexes=[
-        "python/pyspark/pandas/"
-    ],
+    source_file_regexes=["python/pyspark/pandas/"],
     python_test_goals=[
         # doctests
         "pyspark.pandas.frame",
@@ -688,9 +748,12 @@ pyspark_pandas_slow = Module(
         "pyspark.pandas.tests.indexes.test_base",
         "pyspark.pandas.tests.indexes.test_datetime",
         "pyspark.pandas.tests.test_dataframe",
+        "pyspark.pandas.tests.test_dataframe_slow",
         "pyspark.pandas.tests.test_groupby",
+        "pyspark.pandas.tests.test_groupby_slow",
         "pyspark.pandas.tests.test_indexing",
         "pyspark.pandas.tests.test_ops_on_diff_frames",
+        "pyspark.pandas.tests.test_ops_on_diff_frames_slow",
         "pyspark.pandas.tests.test_ops_on_diff_frames_groupby",
         "pyspark.pandas.tests.test_series",
         "pyspark.pandas.tests.test_stats",
@@ -698,7 +761,17 @@ pyspark_pandas_slow = Module(
     excluded_python_implementations=[
         "PyPy"  # Skip these tests under PyPy since they require numpy, pandas, and pyarrow and
         # they aren't available there
-    ]
+    ],
+)
+
+pyspark_errors = Module(
+    name="pyspark-errors",
+    dependencies=[],
+    source_file_regexes=["python/pyspark/errors"],
+    python_test_goals=[
+        # unittests
+        "pyspark.errors.tests.test_errors",
+    ],
 )
 
 sparkr = Module(
@@ -707,7 +780,7 @@ sparkr = Module(
     source_file_regexes=[
         "R/",
     ],
-    should_run_r_tests=True
+    should_run_r_tests=True,
 )
 
 
@@ -716,7 +789,7 @@ docs = Module(
     dependencies=[],
     source_file_regexes=[
         "docs/",
-    ]
+    ],
 )
 
 build = Module(
@@ -726,7 +799,7 @@ build = Module(
         ".*pom.xml",
         "dev/test-dependencies.sh",
     ],
-    should_run_build_tests=True
+    should_run_build_tests=True,
 )
 
 yarn = Module(
@@ -741,9 +814,7 @@ yarn = Module(
         "yarn/test",
         "network-yarn/test",
     ],
-    test_tags=[
-        "org.apache.spark.tags.ExtendedYarnTest"
-    ]
+    test_tags=["org.apache.spark.tags.ExtendedYarnTest"],
 )
 
 mesos = Module(
@@ -751,15 +822,15 @@ mesos = Module(
     dependencies=[],
     source_file_regexes=["resource-managers/mesos/"],
     build_profile_flags=["-Pmesos"],
-    sbt_test_goals=["mesos/test"]
+    sbt_test_goals=["mesos/test"],
 )
 
 kubernetes = Module(
     name="kubernetes",
     dependencies=[],
     source_file_regexes=["resource-managers/kubernetes"],
-    build_profile_flags=["-Pkubernetes"],
-    sbt_test_goals=["kubernetes/test"]
+    build_profile_flags=["-Pkubernetes", "-Pvolcano"],
+    sbt_test_goals=["kubernetes/test"],
 )
 
 hadoop_cloud = Module(
@@ -767,7 +838,7 @@ hadoop_cloud = Module(
     dependencies=[],
     source_file_regexes=["hadoop-cloud"],
     build_profile_flags=["-Phadoop-cloud"],
-    sbt_test_goals=["hadoop-cloud/test"]
+    sbt_test_goals=["hadoop-cloud/test"],
 )
 
 spark_ganglia_lgpl = Module(
@@ -775,22 +846,20 @@ spark_ganglia_lgpl = Module(
     dependencies=[],
     build_profile_flags=["-Pspark-ganglia-lgpl"],
     source_file_regexes=[
-        "external/spark-ganglia-lgpl",
-    ]
+        "connector/spark-ganglia-lgpl",
+    ],
 )
 
 docker_integration_tests = Module(
     name="docker-integration-tests",
     dependencies=[sql],
     build_profile_flags=["-Pdocker-integration-tests"],
-    source_file_regexes=["external/docker-integration-tests"],
+    source_file_regexes=["connector/docker-integration-tests"],
     sbt_test_goals=["docker-integration-tests/test"],
-    environ=None if "GITHUB_ACTIONS" not in os.environ else {
-        "ENABLE_DOCKER_INTEGRATION_TESTS": "1"
-    },
-    test_tags=[
-        "org.apache.spark.tags.DockerTest"
-    ]
+    environ=None
+    if "GITHUB_ACTIONS" not in os.environ
+    else {"ENABLE_DOCKER_INTEGRATION_TESTS": "1"},
+    test_tags=["org.apache.spark.tags.DockerTest"],
 )
 
 # The root module is a dummy module which is used to run all of the tests.
@@ -800,12 +869,13 @@ root = Module(
     dependencies=[build, core],  # Changes to build should trigger all tests.
     source_file_regexes=[],
     # In order to run all of the tests, enable every test profile:
-    build_profile_flags=list(set(
-        itertools.chain.from_iterable(m.build_profile_flags for m in all_modules))),
+    build_profile_flags=list(
+        set(itertools.chain.from_iterable(m.build_profile_flags for m in all_modules))
+    ),
     sbt_test_goals=[
         "test",
     ],
     python_test_goals=list(itertools.chain.from_iterable(m.python_test_goals for m in all_modules)),
     should_run_r_tests=True,
-    should_run_build_tests=True
+    should_run_build_tests=True,
 )

@@ -56,7 +56,7 @@ object SqlResourceSuite {
 
   val edges: Seq[SparkPlanGraphEdge] = Seq(SparkPlanGraphEdge(3, 2))
 
-  val nodesWhenCodegenIsOff: Seq[SparkPlanGraphNode] =
+  val nodesWhenCodegenIsOff: collection.Seq[SparkPlanGraphNode] =
     SparkPlanGraph(nodes, edges).allNodes.filterNot(_.name == WHOLE_STAGE_CODEGEN_1)
 
   val metrics: Seq[SQLPlanMetric] = {
@@ -82,6 +82,7 @@ object SqlResourceSuite {
 
     new SQLExecutionUIData(
       executionId = 0,
+      rootExecutionId = 1,
       description = DESCRIPTION,
       details = "",
       physicalPlanDescription = PLAN_DESCRIPTION,
@@ -93,7 +94,8 @@ object SqlResourceSuite {
         0 -> JobExecutionStatus.SUCCEEDED,
         1 -> JobExecutionStatus.SUCCEEDED),
       stages = Set[Int](),
-      metricValues = getMetricValues()
+      metricValues = getMetricValues(),
+      errorMessage = None
     )
   }
 
@@ -152,7 +154,7 @@ class SqlResourceSuite extends SparkFunSuite with PrivateMethodTester {
   import SqlResourceSuite._
 
   val sqlResource = new SqlResource()
-  val prepareExecutionData = PrivateMethod[ExecutionData]('prepareExecutionData)
+  val prepareExecutionData = PrivateMethod[ExecutionData](Symbol("prepareExecutionData"))
 
   test("Prepare ExecutionData when details = false and planDescription = false") {
     val executionData =
@@ -196,7 +198,7 @@ class SqlResourceSuite extends SparkFunSuite with PrivateMethodTester {
   }
 
   test("Parse wholeStageCodegenId from nodeName") {
-    val getWholeStageCodegenId = PrivateMethod[Option[Long]]('getWholeStageCodegenId)
+    val getWholeStageCodegenId = PrivateMethod[Option[Long]](Symbol("getWholeStageCodegenId"))
     val wholeStageCodegenId =
       sqlResource invokePrivate getWholeStageCodegenId(WHOLE_STAGE_CODEGEN_1)
     assert(wholeStageCodegenId == Some(1))

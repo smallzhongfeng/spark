@@ -20,7 +20,11 @@ package org.apache.spark.sql.jdbc
 import java.sql.{Date, Timestamp, Types}
 import java.util.{Locale, TimeZone}
 
+import scala.util.control.NonFatal
+
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
+import org.apache.spark.sql.connector.expressions.Expression
+import org.apache.spark.sql.execution.datasources.jdbc.JDBCOptions
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 
@@ -32,6 +36,42 @@ private case object OracleDialect extends JdbcDialect {
 
   override def canHandle(url: String): Boolean =
     url.toLowerCase(Locale.ROOT).startsWith("jdbc:oracle")
+
+  private val distinctUnsupportedAggregateFunctions =
+    Set("VAR_POP", "VAR_SAMP", "STDDEV_POP", "STDDEV_SAMP", "COVAR_POP", "COVAR_SAMP", "CORR",
+      "REGR_INTERCEPT", "REGR_R2", "REGR_SLOPE", "REGR_SXY")
+
+  // scalastyle:off line.size.limit
+  // https://docs.oracle.com/en/database/oracle/oracle-database/19/sqlrf/Aggregate-Functions.html#GUID-62BE676B-AF18-4E63-BD14-25206FEA0848
+  // scalastyle:on line.size.limit
+  private val supportedAggregateFunctions =
+    Set("MAX", "MIN", "SUM", "COUNT", "AVG") ++ distinctUnsupportedAggregateFunctions
+  private val supportedFunctions = supportedAggregateFunctions
+
+  override def isSupportedFunction(funcName: String): Boolean =
+    supportedFunctions.contains(funcName)
+
+  class OracleSQLBuilder extends JDBCSQLBuilder {
+    override def visitAggregateFunction(
+        funcName: String, isDistinct: Boolean, inputs: Array[String]): String =
+      if (isDistinct && distinctUnsupportedAggregateFunctions.contains(funcName)) {
+        throw new UnsupportedOperationException(s"${this.getClass.getSimpleName} does not " +
+          s"support aggregate function: $funcName with DISTINCT");
+      } else {
+        super.visitAggregateFunction(funcName, isDistinct, inputs)
+      }
+  }
+
+  override def compileExpression(expr: Expression): Option[String] = {
+    val oracleSQLBuilder = new OracleSQLBuilder()
+    try {
+      Some(oracleSQLBuilder.build(expr))
+    } catch {
+      case NonFatal(e) =>
+        logWarning("Error occurs while compiling V2 expression", e)
+        None
+    }
+  }
 
   private def supportTimeZoneTypes: Boolean = {
     val timeZone = DateTimeUtils.getTimeZone(SQLConf.get.sessionLocalTimeZone)
@@ -134,4 +174,29 @@ private case object OracleDialect extends JdbcDialect {
     val nullable = if (isNullable) "NULL" else "NOT NULL"
     s"ALTER TABLE $tableName MODIFY ${quoteIdentifier(columnName)} $nullable"
   }
+
+  override def getLimitClause(limit: Integer): String = {
+    // Oracle doesn't support LIMIT clause.
+    // We can use rownum <= n to limit the number of rows in the result set.
+    if (limit > 0) s"WHERE rownum <= $limit" else ""
+  }
+
+  class OracleSQLQueryBuilder(dialect: JdbcDialect, options: JDBCOptions)
+    extends JdbcSQLQueryBuilder(dialect, options) {
+
+    // TODO[SPARK-42289]: DS V2 pushdown could let JDBC dialect decide to push down offset
+    override def build(): String = {
+      val selectStmt = s"SELECT $columnList FROM ${options.tableOrQuery} $tableSampleClause" +
+        s" $whereClause $groupByClause $orderByClause"
+      if (limit > 0) {
+        val limitClause = dialect.getLimitClause(limit)
+        options.prepareQuery + s"SELECT tab.* FROM ($selectStmt) tab $limitClause"
+      } else {
+        options.prepareQuery + selectStmt
+      }
+    }
+  }
+
+  override def getJdbcSQLQueryBuilder(options: JDBCOptions): JdbcSQLQueryBuilder =
+    new OracleSQLQueryBuilder(this, options)
 }

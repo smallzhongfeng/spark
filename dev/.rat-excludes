@@ -33,13 +33,12 @@ graphlib-dot.min.js
 sorttable.js
 vis-timeline-graph2d.min.js
 vis-timeline-graph2d.min.css
-dataTables.bootstrap4.1.10.20.min.css
-dataTables.bootstrap4.1.10.20.min.js
+dataTables.bootstrap4.1.13.2.min.css
+dataTables.bootstrap4.1.13.2.min.js
 dataTables.rowsGroup.js
 jquery.blockUI.min.js
 jquery.cookies.2.2.0.min.js
-jquery.dataTables.1.10.20.min.css
-jquery.dataTables.1.10.20.min.js
+jquery.dataTables.1.13.2.min.js
 jquery.mustache.js
 jsonFormatter.min.css
 jsonFormatter.min.js
@@ -96,6 +95,7 @@ local-1426633911242
 local-1430917381534
 local-1430917381535_1
 local-1430917381535_2
+local-1642039451826
 DESCRIPTION
 NAMESPACE
 test_support/*
@@ -112,15 +112,12 @@ spark-deps-.*
 .*\.tsv
 .*\.sql
 .Rbuildignore
-META-INF/*
 spark-warehouse
 structured-streaming/*
 kafka-source-initial-offset-version-2.1.0.bin
 kafka-source-initial-offset-future-version.bin
 announce.tmpl
 vote.tmpl
-SessionManager.java
-SessionHandler.java
 GangliaReporter.java
 application_1578436911597_0052
 config.properties
@@ -138,3 +135,9 @@ over10k
 exported_table/*
 ansible-for-test-node/*
 node_modules
+spark-events-broken/*
+# Spark Connect related files with custom licence
+any.proto
+empty.proto
+.*\.explain
+.*\.proto.bin

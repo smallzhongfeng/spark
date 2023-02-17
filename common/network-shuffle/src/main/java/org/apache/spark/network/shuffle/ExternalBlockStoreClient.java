@@ -257,6 +257,23 @@ public class ExternalBlockStoreClient extends BlockStoreClient {
   }
 
   @Override
+  public boolean removeShuffleMerge(String host, int port, int shuffleId, int shuffleMergeId) {
+    checkInit();
+    try {
+      TransportClient client = clientFactory.createClient(host, port);
+      client.send(
+          new RemoveShuffleMerge(appId, comparableAppAttemptId, shuffleId, shuffleMergeId)
+              .toByteBuffer());
+      // TODO(SPARK-42025): Add some error logs for RemoveShuffleMerge RPC
+    } catch (Exception e) {
+      logger.debug("Exception while sending RemoveShuffleMerge request to {}:{}",
+          host, port, e);
+      return false;
+    }
+    return true;
+  }
+
+  @Override
   public MetricSet shuffleMetrics() {
     checkInit();
     return clientFactory.getAllMetrics();
@@ -299,7 +316,7 @@ public class ExternalBlockStoreClient extends BlockStoreClient {
           BlockTransferMessage msgObj = BlockTransferMessage.Decoder.fromByteBuffer(response);
           numRemovedBlocksFuture.complete(((BlocksRemoved) msgObj).numRemovedBlocks);
         } catch (Throwable t) {
-          logger.warn("Error trying to remove RDD blocks " + Arrays.toString(blockIds) +
+          logger.warn("Error trying to remove blocks " + Arrays.toString(blockIds) +
             " via external shuffle service from executor: " + execId, t);
           numRemovedBlocksFuture.complete(0);
         }
@@ -307,7 +324,7 @@ public class ExternalBlockStoreClient extends BlockStoreClient {
 
       @Override
       public void onFailure(Throwable e) {
-        logger.warn("Error trying to remove RDD blocks " + Arrays.toString(blockIds) +
+        logger.warn("Error trying to remove blocks " + Arrays.toString(blockIds) +
           " via external shuffle service from executor: " + execId, e);
         numRemovedBlocksFuture.complete(0);
       }

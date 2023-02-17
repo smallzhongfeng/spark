@@ -21,8 +21,11 @@ import struct
 import sys
 import unittest
 from time import time, sleep
+from typing import Dict, Optional
 
 from pyspark import SparkContext, SparkConf
+from pyspark.errors import PySparkException
+from pyspark.find_spark_home import _find_spark_home
 
 
 have_scipy = False
@@ -43,7 +46,7 @@ except ImportError:
     pass
 
 
-SPARK_HOME = os.environ["SPARK_HOME"]
+SPARK_HOME = _find_spark_home()
 
 
 def read_int(b):
@@ -152,7 +155,7 @@ class ByteArrayOutput:
 def search_jar(project_relative_path, sbt_jar_name_prefix, mvn_jar_name_prefix):
     # Note that 'sbt_jar_name_prefix' and 'mvn_jar_name_prefix' are used since the prefix can
     # vary for SBT or Maven specifically. See also SPARK-26856
-    project_full_path = os.path.join(os.environ["SPARK_HOME"], project_relative_path)
+    project_full_path = os.path.join(SPARK_HOME, project_relative_path)
 
     # We should ignore the following jars
     ignored_jar_suffixes = ("javadoc.jar", "sources.jar", "test-sources.jar", "tests.jar")
@@ -172,3 +175,37 @@ def search_jar(project_relative_path, sbt_jar_name_prefix, mvn_jar_name_prefix):
         raise RuntimeError("Found multiple JARs: %s; please remove all but one" % (", ".join(jars)))
     else:
         return jars[0]
+
+
+class PySparkErrorTestUtils:
+    """
+    This util provide functions to accurate and consistent error testing
+    based on PySpark error classes.
+    """
+
+    def check_error(
+        self,
+        exception: PySparkException,
+        error_class: str,
+        message_parameters: Optional[Dict[str, str]] = None,
+    ):
+        # Test if given error is an instance of PySparkException.
+        self.assertIsInstance(
+            exception,
+            PySparkException,
+            f"checkError requires 'PySparkException', got '{exception.__class__.__name__}'.",
+        )
+
+        # Test error class
+        expected = error_class
+        actual = exception.getErrorClass()
+        self.assertEqual(
+            expected, actual, f"Expected error class was '{expected}', got '{actual}'."
+        )
+
+        # Test message parameters
+        expected = message_parameters
+        actual = exception.getMessageParameters()
+        self.assertEqual(
+            expected, actual, f"Expected message parameters was '{expected}', got '{actual}'"
+        )

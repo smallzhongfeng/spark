@@ -74,6 +74,15 @@ object SerializerBuildHelper {
       returnNullable = false)
   }
 
+  def createSerializerForScalaEnum(inputObject: Expression): Expression = {
+    createSerializerForString(
+      Invoke(
+        inputObject,
+        "toString",
+        ObjectType(classOf[String]),
+        returnNullable = false))
+  }
+
   def createSerializerForJavaEnum(inputObject: Expression): Expression =
     createSerializerForString(Invoke(inputObject, "name", ObjectType(classOf[String])))
 
@@ -82,6 +91,15 @@ object SerializerBuildHelper {
       DateTimeUtils.getClass,
       TimestampType,
       "fromJavaTimestamp",
+      inputObject :: Nil,
+      returnNullable = false)
+  }
+
+  def createSerializerForAnyTimestamp(inputObject: Expression): Expression = {
+    StaticInvoke(
+      DateTimeUtils.getClass,
+      TimestampType,
+      "anyToMicros",
       inputObject :: Nil,
       returnNullable = false)
   }
@@ -113,6 +131,15 @@ object SerializerBuildHelper {
       returnNullable = false)
   }
 
+  def createSerializerForAnyDate(inputObject: Expression): Expression = {
+    StaticInvoke(
+      DateTimeUtils.getClass,
+      DateType,
+      "anyToDays",
+      inputObject :: Nil,
+      returnNullable = false)
+  }
+
   def createSerializerForJavaDuration(inputObject: Expression): Expression = {
     StaticInvoke(
       IntervalUtils.getClass,
@@ -131,30 +158,35 @@ object SerializerBuildHelper {
       returnNullable = false)
   }
 
-  def createSerializerForJavaBigDecimal(inputObject: Expression): Expression = {
+  def createSerializerForBigDecimal(inputObject: Expression): Expression = {
+    createSerializerForBigDecimal(inputObject, DecimalType.SYSTEM_DEFAULT)
+  }
+
+  def createSerializerForBigDecimal(inputObject: Expression, dt: DecimalType): Expression = {
     CheckOverflow(StaticInvoke(
       Decimal.getClass,
-      DecimalType.SYSTEM_DEFAULT,
+      dt,
       "apply",
       inputObject :: Nil,
-      returnNullable = false), DecimalType.SYSTEM_DEFAULT, nullOnOverflow)
+      returnNullable = false), dt, nullOnOverflow)
   }
 
-  def createSerializerForScalaBigDecimal(inputObject: Expression): Expression = {
-    createSerializerForJavaBigDecimal(inputObject)
+  def createSerializerForAnyDecimal(inputObject: Expression, dt: DecimalType): Expression = {
+    CheckOverflow(StaticInvoke(
+      Decimal.getClass,
+      dt,
+      "fromDecimal",
+      inputObject :: Nil,
+      returnNullable = false), dt, nullOnOverflow)
   }
 
-  def createSerializerForJavaBigInteger(inputObject: Expression): Expression = {
+  def createSerializerForBigInteger(inputObject: Expression): Expression = {
     CheckOverflow(StaticInvoke(
       Decimal.getClass,
       DecimalType.BigIntDecimal,
       "apply",
       inputObject :: Nil,
       returnNullable = false), DecimalType.BigIntDecimal, nullOnOverflow)
-  }
-
-  def createSerializerForScalaBigInt(inputObject: Expression): Expression = {
-    createSerializerForJavaBigInteger(inputObject)
   }
 
   def createSerializerForPrimitiveArray(

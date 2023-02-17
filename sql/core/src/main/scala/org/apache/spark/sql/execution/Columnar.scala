@@ -28,10 +28,13 @@ import org.apache.spark.sql.catalyst.expressions.codegen.Block._
 import org.apache.spark.sql.catalyst.plans.physical.Partitioning
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.errors.QueryExecutionErrors
+import org.apache.spark.sql.execution.command.DataWritingCommandExec
+import org.apache.spark.sql.execution.datasources.V1WriteCommand
 import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 import org.apache.spark.sql.execution.vectorized.{OffHeapColumnVector, OnHeapColumnVector, WritableColumnVector}
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
+import org.apache.spark.util.Utils
 
 /**
  * Holds a user defined rule that can be used to inject columnar implementations of various
@@ -65,7 +68,8 @@ trait ColumnarToRowTransition extends UnaryExecNode
  * [[MapPartitionsInRWithArrowExec]]. Eventually this should replace those implementations.
  */
 case class ColumnarToRowExec(child: SparkPlan) extends ColumnarToRowTransition with CodegenSupport {
-  assert(child.supportsColumnar)
+  // supportsColumnar requires to be only called on driver side, see also SPARK-37779.
+  assert(Utils.isInRunningSparkTask || child.supportsColumnar)
 
   override def output: Seq[Attribute] = child.output
 
@@ -262,7 +266,7 @@ private object RowToColumnConverter {
       case ShortType => ShortConverter
       case IntegerType | DateType | _: YearMonthIntervalType => IntConverter
       case FloatType => FloatConverter
-      case LongType | TimestampType | _: DayTimeIntervalType => LongConverter
+      case LongType | TimestampType | TimestampNTZType | _: DayTimeIntervalType => LongConverter
       case DoubleType => DoubleConverter
       case StringType => StringConverter
       case CalendarIntervalType => CalendarConverter
@@ -272,7 +276,7 @@ private object RowToColumnConverter {
       case dt: DecimalType => new DecimalConverter(dt)
       case mt: MapType => MapConverter(getConverterForType(mt.keyType, nullable = false),
         getConverterForType(mt.valueType, mt.valueContainsNull))
-      case unknown => throw QueryExecutionErrors.unsupportedDataTypeError(unknown.toString)
+      case unknown => throw QueryExecutionErrors.unsupportedDataTypeError(unknown)
     }
 
     if (nullable) {
@@ -361,7 +365,7 @@ private object RowToColumnConverter {
     override def append(row: SpecializedGetters, column: Int, cv: WritableColumnVector): Unit = {
       cv.appendStruct(false)
       val data = row.getStruct(column, childConverters.length)
-      for (i <- 0 until childConverters.length) {
+      for (i <- childConverters.indices) {
         childConverters(i).append(data, i, cv.getChild(i))
       }
     }
@@ -539,10 +543,19 @@ case class ApplyColumnarRulesAndInsertTransitions(
       // `outputsColumnar` is false but the plan only outputs columnar format, so add a
       // to-row transition here.
       ColumnarToRowExec(insertRowToColumnar(plan))
-    } else if (!plan.isInstanceOf[ColumnarToRowTransition]) {
-      plan.withNewChildren(plan.children.map(insertTransitions(_, outputsColumnar = false)))
-    } else {
+    } else if (plan.isInstanceOf[ColumnarToRowTransition]) {
       plan
+    } else {
+      val outputsColumnar = plan match {
+        // With planned write, the write command invokes child plan's `executeWrite` which is
+        // neither columnar nor row-based.
+        case write: DataWritingCommandExec
+            if write.cmd.isInstanceOf[V1WriteCommand] && conf.plannedWriteEnabled =>
+          write.child.supportsColumnar
+        case _ =>
+          false
+      }
+      plan.withNewChildren(plan.children.map(insertTransitions(_, outputsColumnar)))
     }
   }
 

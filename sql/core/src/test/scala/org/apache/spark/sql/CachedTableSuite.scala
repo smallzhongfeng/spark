@@ -153,7 +153,9 @@ class CachedTableSuite extends QueryTest with SQLTestUtils
       val e = intercept[TempTableAlreadyExistsException] {
         sql("CACHE TABLE tempView AS SELECT 1")
       }
-      assert(e.getMessage.contains("Temporary view 'tempView' already exists"))
+      checkError(e,
+        errorClass = "TEMP_TABLE_OR_VIEW_ALREADY_EXISTS",
+        parameters = Map("relationName" -> "`tempView`"))
     }
   }
 
@@ -604,9 +606,7 @@ class CachedTableSuite extends QueryTest with SQLTestUtils
       uncacheTable("t2")
     }
 
-    // One side of join is not partitioned in the desired way. Since the number of partitions of
-    // the side that has already partitioned is smaller than the side that is not partitioned,
-    // we shuffle both side.
+    // One side of join is not partitioned in the desired way. We'll only shuffle this side.
     withTempView("t1", "t2") {
       testData.repartition(6, $"value").createOrReplaceTempView("t1")
       testData2.repartition(3, $"a").createOrReplaceTempView("t2")
@@ -614,7 +614,7 @@ class CachedTableSuite extends QueryTest with SQLTestUtils
       spark.catalog.cacheTable("t2")
 
       val query = sql("SELECT key, value, a, b FROM t1 t1 JOIN t2 t2 ON t1.key = t2.a")
-      verifyNumExchanges(query, 2)
+      verifyNumExchanges(query, 1)
       checkAnswer(
         query,
         testData.join(testData2, $"key" === $"a").select($"key", $"value", $"a", $"b"))
@@ -964,7 +964,8 @@ class CachedTableSuite extends QueryTest with SQLTestUtils
           if (!storeAnalyzed) {
             // t2 should become invalid after t1 is dropped
             val e = intercept[AnalysisException](spark.catalog.isCached("t2"))
-            assert(e.message.contains(s"Table or view not found"))
+            checkErrorTableNotFound(e, "`t1`",
+              ExpectedContext("VIEW", "t2", 14, 15, "t1"))
           }
         }
       }
@@ -995,7 +996,8 @@ class CachedTableSuite extends QueryTest with SQLTestUtils
               if (!storeAnalyzed) {
                 // t2 should become invalid after t1 is dropped
                 val e = intercept[AnalysisException](spark.catalog.isCached("t2"))
-                assert(e.message.contains(s"Table or view not found"))
+                checkErrorTableNotFound(e, "`t1`",
+                  ExpectedContext("VIEW", "t2", 14, 15, "t1"))
               }
             }
           }
@@ -1433,7 +1435,8 @@ class CachedTableSuite extends QueryTest with SQLTestUtils
       checkAnswer(sql("SELECT * FROM v"), Row(1) :: Nil)
       sql(s"DROP TABLE $t")
       val e = intercept[AnalysisException](sql("SELECT * FROM v"))
-      assert(e.message.contains(s"Table or view not found: $t"))
+      checkErrorTableNotFound(e, s"`$t`",
+        ExpectedContext("VIEW", "v", 14, 13 + t.length, t))
     }
   }
 

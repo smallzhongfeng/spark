@@ -57,7 +57,7 @@ class FailureSafeParser[IN](
 
   def parse(input: IN): Iterator[InternalRow] = {
     try {
-      rawParser.apply(input).toIterator.map(row => toResultRow(Some(row), () => null))
+      rawParser.apply(input).iterator.map(row => toResultRow(Some(row), () => null))
     } catch {
       case e: BadRecordException => mode match {
         case PermissiveMode =>
@@ -65,7 +65,8 @@ class FailureSafeParser[IN](
         case DropMalformedMode =>
           Iterator.empty
         case FailFastMode =>
-          throw QueryExecutionErrors.malformedRecordsDetectedInRecordParsingError(e)
+          throw QueryExecutionErrors.malformedRecordsDetectedInRecordParsingError(
+            toResultRow(e.partialResult(), e.record).toString, e)
       }
     }
   }

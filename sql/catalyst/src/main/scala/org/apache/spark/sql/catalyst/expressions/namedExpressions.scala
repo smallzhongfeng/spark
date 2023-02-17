@@ -25,8 +25,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen._
 import org.apache.spark.sql.catalyst.plans.logical.EventTimeWatermark
 import org.apache.spark.sql.catalyst.trees.TreePattern
 import org.apache.spark.sql.catalyst.trees.TreePattern._
-import org.apache.spark.sql.catalyst.util.quoteIfNeeded
-import org.apache.spark.sql.errors.QueryExecutionErrors
+import org.apache.spark.sql.catalyst.util.{quoteIfNeeded, METADATA_COL_ATTR_KEY}
 import org.apache.spark.sql.types._
 import org.apache.spark.util.collection.BitSet
 import org.apache.spark.util.collection.ImmutableBitSet
@@ -72,11 +71,11 @@ trait NamedExpression extends Expression {
   def exprId: ExprId
 
   /**
-   * Returns a dot separated fully qualified name for this attribute.  Given that there can be
-   * multiple qualifiers, it is possible that there are other possible way to refer to this
-   * attribute.
+   * Returns a dot separated fully qualified name for this attribute.  If the name or any qualifier
+   * contains `dots`, it is quoted to avoid confusion.  Given that there can be multiple qualifiers,
+   * it is possible that there are other possible way to refer to this attribute.
    */
-  def qualifiedName: String = (qualifier :+ name).mkString(".")
+  def qualifiedName: String = (qualifier :+ name).map(quoteIfNeeded).mkString(".")
 
   /**
    * Optional qualifier for the expression.
@@ -160,7 +159,7 @@ case class Alias(child: Expression, name: String)(
   /** Just a simple passthrough for code generation. */
   override def genCode(ctx: CodegenContext): ExprCode = child.genCode(ctx)
   override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
-    throw QueryExecutionErrors.doGenCodeOfAliasShouldNotBeCalledError
+    throw new IllegalStateException("Alias.doGenCode should not be called.")
   }
 
   override def dataType: DataType = child.dataType
@@ -168,11 +167,8 @@ case class Alias(child: Expression, name: String)(
   override def metadata: Metadata = {
     explicitMetadata.getOrElse {
       child match {
-        case named: NamedExpression =>
-          val builder = new MetadataBuilder().withMetadata(named.metadata)
-          nonInheritableMetadataKeys.foreach(builder.remove)
-          builder.build()
-
+        case named: NamedExpression => removeNonInheritableMetadata(named.metadata)
+        case structField: GetStructField => removeNonInheritableMetadata(structField.metadata)
         case _ => Metadata.empty
       }
     }
@@ -196,7 +192,7 @@ case class Alias(child: Expression, name: String)(
     if (resolved) {
       AttributeReference(name, child.dataType, child.nullable, metadata)(exprId, qualifier)
     } else {
-      UnresolvedAttribute(name)
+      UnresolvedAttribute.quoted(name)
     }
   }
 
@@ -205,6 +201,12 @@ case class Alias(child: Expression, name: String)(
     s"-T${metadata.getLong(EventTimeWatermark.delayKey)}ms"
   } else {
     ""
+  }
+
+  private def removeNonInheritableMetadata(metadata: Metadata): Metadata = {
+    val builder = new MetadataBuilder().withMetadata(metadata)
+    nonInheritableMetadataKeys.foreach(builder.remove)
+    builder.build()
   }
 
   override def toString: String = s"$child AS $name#${exprId.id}$typeSuffix$delaySuffix"
@@ -293,8 +295,8 @@ case class AttributeReference(
     h
   }
 
-  override lazy val preCanonicalized: Expression = {
-    AttributeReference("none", dataType.asNullable)(exprId)
+  override lazy val canonicalized: Expression = {
+    AttributeReference("none", dataType)(exprId)
   }
 
   override def newInstance(): AttributeReference =
@@ -342,7 +344,7 @@ case class AttributeReference(
     AttributeReference(name, dataType, nullable, newMetadata)(exprId, qualifier)
   }
 
-  override def withDataType(newType: DataType): Attribute = {
+  override def withDataType(newType: DataType): AttributeReference = {
     AttributeReference(name, newType, nullable, metadata)(exprId, qualifier)
   }
 
@@ -426,9 +428,172 @@ case class OuterReference(e: NamedExpression)
   final override val nodePatterns: Seq[TreePattern] = Seq(OUTER_REFERENCE)
 }
 
+/**
+ * A placeholder used to hold a [[NamedExpression]] that has been temporarily resolved as the
+ * reference to a lateral column alias. It will be restored back to [[UnresolvedAttribute]] if
+ * the lateral column alias can't be resolved, or become a normal resolved column in the rewritten
+ * plan after lateral column resolution. There should be no [[LateralColumnAliasReference]] beyond
+ * analyzer: if the plan passes all analysis check, then all [[LateralColumnAliasReference]] should
+ * already be removed.
+ *
+ * @param ne the [[NamedExpression]] produced by column resolution. Can be [[UnresolvedAttribute]]
+ *           if the referenced lateral column alias is not resolved yet.
+ * @param nameParts the name parts of the original [[UnresolvedAttribute]]. Used to restore back
+ *                  to [[UnresolvedAttribute]] when needed
+ * @param a the attribute of referenced lateral column alias. Used to match alias when unwrapping
+ *          and resolving lateral column aliases and rewriting the query plan.
+ */
+case class LateralColumnAliasReference(ne: NamedExpression, nameParts: Seq[String], a: Attribute)
+  extends LeafExpression with NamedExpression with Unevaluable {
+  assert(ne.resolved || ne.isInstanceOf[UnresolvedAttribute])
+  override def name: String = ne.name
+  override def exprId: ExprId = ne.exprId
+  override def qualifier: Seq[String] = ne.qualifier
+  override def toAttribute: Attribute = ne.toAttribute
+  override lazy val resolved = ne.resolved
+  override def newInstance(): NamedExpression =
+    LateralColumnAliasReference(ne.newInstance(), nameParts, a)
+
+  override def nullable: Boolean = ne.nullable
+  override def dataType: DataType = ne.dataType
+  override def prettyName: String = "lateralAliasReference"
+  override def sql: String = s"$prettyName($name)"
+
+  final override val nodePatterns: Seq[TreePattern] = Seq(LATERAL_COLUMN_ALIAS_REFERENCE)
+}
+
 object VirtualColumn {
   // The attribute name used by Hive, which has different result than Spark, deprecated.
   val hiveGroupingIdName: String = "grouping__id"
   val groupingIdName: String = "spark_grouping_id"
   val groupingIdAttribute: UnresolvedAttribute = UnresolvedAttribute(groupingIdName)
+}
+
+/**
+ * The internal representation of the MetadataAttribute,
+ * it sets `__metadata_col` to `true` in AttributeReference metadata
+ * - apply() will create a metadata attribute reference
+ * - unapply() will check if an attribute reference is the metadata attribute reference
+ */
+object MetadataAttribute {
+  def apply(name: String, dataType: DataType, nullable: Boolean = true): AttributeReference =
+    AttributeReference(name, dataType, nullable,
+      new MetadataBuilder().putBoolean(METADATA_COL_ATTR_KEY, value = true).build())()
+
+  def unapply(attr: AttributeReference): Option[AttributeReference] = {
+    if (attr.metadata.contains(METADATA_COL_ATTR_KEY)
+      && attr.metadata.getBoolean(METADATA_COL_ATTR_KEY)) {
+      Some(attr)
+    } else None
+  }
+}
+
+/**
+ * The internal representation of the FileSourceMetadataAttribute, it sets `__metadata_col`
+ * and `__file_source_metadata_col` to `true` in AttributeReference's metadata.
+ * This is a super type of [[FileSourceConstantMetadataAttribute]] and
+ * [[FileSourceGeneratedMetadataAttribute]].
+ *
+ * - apply() will create a file source metadata attribute reference
+ * - unapply() will check if an attribute reference is any file source metadata attribute reference
+ */
+object FileSourceMetadataAttribute {
+
+  val FILE_SOURCE_METADATA_COL_ATTR_KEY = "__file_source_metadata_col"
+
+  /**
+   * Cleanup the internal metadata information of an attribute if it is
+   * a [[FileSourceConstantMetadataAttribute]] or [[FileSourceGeneratedMetadataAttribute]].
+   */
+  def cleanupFileSourceMetadataInformation(attr: Attribute): Attribute =
+    removeInternalMetadata(attr)
+
+  def apply(name: String, dataType: DataType, nullable: Boolean = false): AttributeReference =
+    AttributeReference(name, dataType, nullable = nullable,
+      new MetadataBuilder()
+        .putBoolean(METADATA_COL_ATTR_KEY, value = true)
+        .putBoolean(FILE_SOURCE_METADATA_COL_ATTR_KEY, value = true).build())()
+
+  /** Matches if attr is any File source metadata attribute (including constant and generated). */
+  def unapply(attr: AttributeReference): Option[AttributeReference] =
+    attr match {
+      case MetadataAttribute(attr)
+        if attr.metadata.contains(FILE_SOURCE_METADATA_COL_ATTR_KEY)
+          && attr.metadata.getBoolean(FILE_SOURCE_METADATA_COL_ATTR_KEY) => Some(attr)
+      case _ => None
+    }
+
+  private def removeInternalMetadata(attr: Attribute) = {
+    attr.withMetadata(
+      new MetadataBuilder().withMetadata(attr.metadata)
+        .remove(METADATA_COL_ATTR_KEY)
+        .remove(FILE_SOURCE_METADATA_COL_ATTR_KEY)
+        .remove(FileSourceConstantMetadataAttribute.FILE_SOURCE_CONSTANT_METADATA_COL_ATTR_KEY)
+        .remove(FileSourceGeneratedMetadataAttribute.FILE_SOURCE_GENERATED_METADATA_COL_ATTR_KEY)
+        .build()
+    )
+  }
+}
+
+/**
+ * The internal representation of the FileSourceConstantMetadataAttribute, it sets `__metadata_col`
+ * and `__file_source_constant_metadata_col` to `true` in AttributeReference's metadata. This type
+ * is used to represent metadata that is constant for a whole file, like file name. Values are
+ * usually appended to the output and not generated per row.
+ *
+ * - apply() will create a file source metadata attribute reference
+ * - unapply() will check if an attribute reference is the file source metadata attribute reference
+ */
+object FileSourceConstantMetadataAttribute {
+
+  val FILE_SOURCE_CONSTANT_METADATA_COL_ATTR_KEY = "__file_source_constant_metadata_col"
+
+  def apply(name: String, dataType: DataType, nullable: Boolean = false): AttributeReference =
+    AttributeReference(name, dataType, nullable = nullable,
+      new MetadataBuilder()
+        .putBoolean(METADATA_COL_ATTR_KEY, value = true)
+        .putBoolean(FileSourceMetadataAttribute.FILE_SOURCE_METADATA_COL_ATTR_KEY, value = true)
+        .putBoolean(FILE_SOURCE_CONSTANT_METADATA_COL_ATTR_KEY, value = true).build())()
+
+  def unapply(attr: AttributeReference): Option[AttributeReference] =
+    attr match {
+      case FileSourceMetadataAttribute(attr)
+        if attr.metadata.contains(FILE_SOURCE_CONSTANT_METADATA_COL_ATTR_KEY)
+          && attr.metadata.getBoolean(FILE_SOURCE_CONSTANT_METADATA_COL_ATTR_KEY) => Some(attr)
+      case _ => None
+    }
+}
+
+/**
+ * The internal representation of the FileSourceGeneratedMetadataAttribute. It sets `__metadata_col`
+ * and `__file_source_generated_metadata_col` to `true` in AttributeReference's metadata. In
+ * contrast to [[FileSourceConstantMetadataAttribute]] it represents metadata columns that are not
+ * constant per file and are generated as part of the scan.
+ *
+ * - apply() will create a file source generated metadata attribute reference
+ * - unapply() will check if an attribute reference is the file source generated metadata attribute
+ *   reference
+ */
+object FileSourceGeneratedMetadataAttribute {
+
+  val FILE_SOURCE_GENERATED_METADATA_COL_ATTR_KEY = "__file_source_generated_metadata_col"
+
+  def apply(name: String, dataType: DataType, nullable: Boolean = false): AttributeReference =
+    AttributeReference(name, dataType, nullable = nullable,
+      new MetadataBuilder()
+        .putBoolean(METADATA_COL_ATTR_KEY, value = true)
+        .putBoolean(FileSourceMetadataAttribute.FILE_SOURCE_METADATA_COL_ATTR_KEY, value = true)
+        .putBoolean(FILE_SOURCE_GENERATED_METADATA_COL_ATTR_KEY, value = true).build())()
+
+  def unapply(attr: AttributeReference): Option[AttributeReference] =
+    attr match {
+      case FileSourceMetadataAttribute(attr)
+        if attr.metadata.contains(FILE_SOURCE_GENERATED_METADATA_COL_ATTR_KEY)
+          && attr.metadata.getBoolean(FILE_SOURCE_GENERATED_METADATA_COL_ATTR_KEY) => Some(attr)
+      case _ => None
+    }
+
+  /** True if `structField` represents a file source generated metadata column. */
+  def isGeneratedMetadataColumn(structField: StructField): Boolean =
+    FileSourceGeneratedMetadataAttribute.unapply(structField.toAttribute).isDefined
 }
